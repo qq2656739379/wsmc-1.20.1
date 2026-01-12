@@ -8,6 +8,13 @@ plugins {
 
 apply from: '../common.gradle'
 
+repositories {
+    maven {
+        name = 'plasmoverse-releases'
+        url = 'https://repo.plasmoverse.com/releases'
+    }
+}
+
 project.ext.mod_id = project.archives_base_name;
 
 // 这些值定义在 ../common.properties
@@ -132,6 +139,10 @@ dependencies {
     	jarJar.pin(it, project.netty_version)
     	exclude(group: 'io.netty')
     }
+
+    compileOnly "su.plo.voice.api:server:2.0.3"
+    compileOnly "su.plo.voice.api:client:2.0.3"
+    compileOnly "su.plo.voice.api:protocol:2.0.3"
 }
 
 mixin {

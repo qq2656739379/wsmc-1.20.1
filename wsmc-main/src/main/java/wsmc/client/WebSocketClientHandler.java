@@ -45,6 +45,7 @@ import wsmc.client.ConnectionEvent.Type;
 import wsmc.client.ConnectStageNotifier;
 import wsmc.client.StatusLogStore;
 import wsmc.client.ClientConfig;
+import wsmc.plasmo.VoiceClientManager;
 
 public class WebSocketClientHandler extends WebSocketHandler {
 	private final WebSocketClientHandshaker handshaker;
@@ -119,6 +120,7 @@ public class WebSocketClientHandler extends WebSocketHandler {
 
 		DefaultHttpHeaders headers = new DefaultHttpHeaders();
 		headers.set("Host", connInfo.httpHostname);
+		headers.set("X-WSMC-Version", "2");
 
 		// 使用 V13（RFC 6455 / HyBi-17）握手；如改为 V08 或 V00，需注意 V00 不支持 ping，
 		// 同时管线中的 HttpResponseDecoder 也要换成 WebSocketHttpResponseDecoder。
@@ -234,6 +236,9 @@ public class WebSocketClientHandler extends WebSocketHandler {
 			pingFuture.cancel(false);
 			pingFuture = null;
 		}
+		if (multiplexing) {
+			VoiceClientManager.get().clearActiveHandler();
+		}
 		WSMC.debug(this.inboundPrefix + " WebSocket Client disconnected!");
 		log(Type.WARN, "连接断开: " + this.targetInfo);
 		ConnectStageNotifier.status("连接断开: " + this.targetInfo);
@@ -257,6 +262,21 @@ public class WebSocketClientHandler extends WebSocketHandler {
 		if (!handshaker.isHandshakeComplete()) {
 			try {
 				handshaker.finishHandshake(ch, (FullHttpResponse) msg);
+
+				if (msg instanceof FullHttpResponse) {
+					HttpHeaders h = ((FullHttpResponse) msg).headers();
+					if ("2".equals(h.get("X-WSMC-Version"))) {
+						this.multiplexing = true;
+						log(Type.INFO, "Negotiated WSMC v2 (Multiplexing)");
+						VoiceClientManager.get().setActiveHandler(this);
+						int port = VoiceClientManager.get().getProxyPort();
+						if (port > 0) {
+							log(Type.INFO, "Voice Tunnel: 127.0.0.1:" + port);
+							WSMC.info("Plasmo Voice Tunnel Ready. Please set Plasmo Voice IP to 127.0.0.1 and Port to " + port);
+						}
+					}
+				}
+
 				WSMC.debug(this.inboundPrefix + " WebSocket Client connected!");
 				log(Type.INFO, "握手成功: " + this.targetInfo);
 				ConnectStageNotifier.status("握手成功，进入登录: " + this.targetInfo);
