@@ -1,0 +1,207 @@
+plugins {
+	id 'eclipse'
+	id 'idea'
+	id 'maven-publish'
+	id 'net.minecraftforge.gradle' version '[6.0.24,6.2)'
+	id 'org.spongepowered.mixin' version '0.7.+'
+}
+
+apply from: '../common.gradle'
+
+project.ext.mod_id = project.archives_base_name;
+
+// 这些值定义在 ../common.properties
+version = project.mod_version
+group = project.dev_group // 命名规范参考 http://maven.apache.org/guides/mini/guide-naming-conventions.html
+archivesBaseName = project.archives_base_name
+
+// 目标版本为 1.20.1，运行时使用 Java 17，保持与客户端一致。
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+
+println('Java: ' + System.getProperty('java.version') + ' JVM: ' + System.getProperty('java.vm.version') + '(' + System.getProperty('java.vendor') + ') Arch: ' + System.getProperty('os.arch'))
+minecraft {
+    // 映射格式可随时更改，需符合以下格式：
+    // 渠道:   版本:
+    // snapshot   YYYYMMDD   每晚构建的快照
+    // stable     #          MCP 团队酌情发布的稳定版
+    // official   MCVersion  Mojang 官方映射的字段/方法名
+    //
+    // 使用 official 映射需留意 Mojang 许可证；详见 https://github.com/MinecraftForge/MCPConfig/blob/master/Mojang.md
+    //
+    // 使用非默认映射需自行承担风险，可能并非总能正常工作。
+    // 更改映射后重新执行 setup 任务以更新工作区。
+    mappings channel: 'official', version: project.minecraft_version // 定义在 ../fabric/gradle.properties
+    // makeObfSourceJar = false // 默认会生成带 Srg 名的源码 jar，取消注释以关闭。
+
+    // 允许在启动游戏前，对 IDE 输出位置执行 Gradle 的 ProcessResources 任务。
+    // 本模板必须设为 true 才能正常工作。
+    // 详见 https://docs.gradle.org/current/dsl/org.gradle.language.jvm.tasks.ProcessResources.html
+	copyIdeResources = true
+
+    // accessTransformer = file('src/main/resources/META-INF/accesstransformer.cfg')
+
+    // 默认运行配置，可按需调整、移除或复制。
+    runs {
+		configureEach {
+			workingDirectory project.file('run')
+
+            // 用户开发环境推荐的日志标记
+			property 'forge.logging.markers', 'SCAN,REGISTRIES'
+
+            // 控制台推荐的日志级别
+			property 'forge.logging.console.level', 'debug'
+
+			mods {
+				"${mod_id}" {
+					source sourceSets.main
+				}
+			}
+		}
+
+        client {
+            // gametest 要加载的命名空间，逗号分隔；空值表示全部。
+            property 'forge.enabledGameTestNamespaces', mod_id
+        }
+
+        server {
+            property 'forge.enabledGameTestNamespaces', mod_id
+            args '--nogui'
+        }
+    }
+}
+
+// 包含数据生成器输出的资源。
+sourceSets {
+    main {
+    	ext.refMap = 'wsmc.refmap.json'
+        java {
+            srcDir "../src/main/java"
+        }
+        resources {
+            srcDir "../src/main/resources"
+            srcDir "../src/generated/resources"
+            exclude '.cache'
+            exclude 'Thumbs.db'
+        }
+    }
+}
+
+dependencies {
+    // 指定要使用的 Minecraft 版本；若 group 不是 net.minecraft，则视为 ForgeGradle 的 patcher 依赖，补丁会被应用。
+    // userdev 构件名称特殊，会应用多种变换。
+    minecraft 'net.minecraftforge:forge:'+ project.minecraft_version + '-' + project.forge_version
+
+    // 依赖可放入 ./libs，或按如下方式声明：
+    // compile "some.group:artifact:version:classifier"
+    // compile "some.group:artifact:version"
+
+    // 示例
+    // compile 'com.mod-buildcraft:buildcraft:6.0.8:dev'  // 将 buildcraft 加入开发环境
+    // compile 'com.googlecode.efficient-java-matrix-library:ejml:0.24' // 将 ejml 加入开发环境
+
+    // provided 配置用于仅编译期存在、运行时可能缺失的可选依赖。
+    // provided 'com.mod-buildcraft:buildcraft:6.0.8:dev'
+
+    // 这些依赖会被重映射到当前 MCP 映射。
+    // deobf 'com.mod-buildcraft:buildcraft:6.0.8:dev'
+
+    // 更多信息：
+    // http://www.gradle.org/docs/current/userguide/artifact_dependencies_tutorial.html
+    // http://www.gradle.org/docs/current/userguide/dependency_management.html
+
+    // 参考 https://forums.minecraftforge.net/topic/149009-error-on-launch/ 添加
+    // 暂时性修复：强制 jopt-simple 固定为 5.0.4，因 Mojang 随游戏提供此版本，但部分传递依赖请求 6.0+
+    implementation('net.sf.jopt-simple:jopt-simple:5.0.4') { version { strictly '5.0.4' } }
+
+    // 使用 Mixin 注解处理器
+    annotationProcessor "org.spongepowered:mixin:${project.mixin_version}:processor"
+
+    // MixinExtra 依赖
+    compileOnly(annotationProcessor("io.github.llamalad7:mixinextras-common:0.4.1"))
+    implementation(jarJar("io.github.llamalad7:mixinextras-forge:0.4.1")) {
+        jarJar.ranged(it, "[0.4.1,)")
+    }
+
+    // Netty 的 HTTP 与 WebSocket 支持
+    minecraftLibrary(group: 'io.netty', name: 'netty-codec-http', version: project.netty_version) {
+    	exclude(group: 'io.netty')
+    }
+
+    // 将 io.netty:netty-codec-http 打包进模组 jar
+    jarJar(group: 'io.netty', name: 'netty-codec-http', version: "[${project.netty_version_min}, ${project.netty_version_max})") {
+    	jarJar.pin(it, project.netty_version)
+    	exclude(group: 'io.netty')
+    }
+}
+
+mixin {
+    // MixinGradle 设置
+    add sourceSets.main, 'wsmc.refmap.json'
+    config 'wsmc.mixins.json'
+    
+    debug.verbose = true
+    debug.export = false
+}
+
+// 将属性写入清单以供运行时读取的示例
+tasks.named('jar', Jar).configure {
+	version version
+    manifest {
+        attributes([
+                "Specification-Title": mod_id,
+                "Specification-Vendor": "Rikka0w0",
+                "Specification-Version": "1", // 这里定义我们自身的规范版本
+                "Implementation-Title": project.name,
+                "Implementation-Version": project.jar.archiveVersion,
+                "Implementation-Vendor" :"Rikka0w0",
+                "Implementation-Timestamp": new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")
+        ])
+    }
+
+    // 推荐使用此方式重新混淆 jar 文件
+	finalizedBy 'reobfJar'
+}
+jar.archiveClassifier = 'forge-slim';
+
+// 展开指定资源中的占位符；缺失的属性会报错，占位符使用 ${} Groovy 语法。
+// 启用 "copyIdeResources" 时，IDE 启动游戏前也会执行。
+// 详见 https://docs.gradle.org/current/dsl/org.gradle.language.jvm.tasks.ProcessResources.html
+tasks.named('processResources', ProcessResources).configure {
+	var replaceProperties = [
+			minecraft_version_range: minecraft_version_range,
+			forge_version_range: forge_version_range,
+			loader_version_range: loader_version_range,
+			mod_id: mod_id,
+			mod_version: mod_version,
+	]
+	inputs.properties replaceProperties
+
+	filesMatching(['META-INF/mods.toml', 'pack.mcmeta']) {
+		expand replaceProperties + [project: project]
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8' // Java 编译使用 UTF-8 字符集
+}
+
+eclipse {
+    // 每次 Eclipse 构建时运行
+    //autoBuildTasks genEclipseRuns
+    // 导入项目时运行
+    synchronizationTasks 'genEclipseRuns'
+}
+
+// 将资源与类输出到同一目录，因为 Java 期望模块位于单个目录。
+// 若分散在多个目录，需要使用性能开销较大的 UnionFileSystem 等方案。
+// 未来会迁移到 ForgeGradle 自动处理；目前先手动处理。
+sourceSets.each {
+	def dir = layout.buildDirectory.dir("sourcesSets/$it.name")
+	it.output.resourcesDir = dir
+	it.java.destinationDirectory = dir
+}
+
+jarJar.enable()
+tasks.jarJar {
+    archiveClassifier.set('forge')
+}
