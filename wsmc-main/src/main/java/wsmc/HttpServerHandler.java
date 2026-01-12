@@ -6,6 +6,7 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.handler.codec.http.DefaultHttpHeaders;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpHeaderValues;
@@ -86,6 +87,7 @@ public class HttpServerHandler extends ChannelInboundHandlerAdapter {
 				String connectionHeader = headers.get(HttpHeaderNames.CONNECTION);
 				String upgradeHeader = headers.get(HttpHeaderNames.UPGRADE);
 				String hostHeader = headers.get("Host");
+				String wsmcVersion = headers.get("X-WSMC-Version");
 
 			if ("Upgrade".equalsIgnoreCase(connectionHeader)
 					&& "WebSocket".equalsIgnoreCase(upgradeHeader)
@@ -106,11 +108,18 @@ public class HttpServerHandler extends ChannelInboundHandlerAdapter {
 
 				logHandshake(ctx, httpRequest);
 
+				boolean enableMultiplexing = "2".equals(wsmcVersion);
+				WebSocketHandler.WebSocketServerHandler wsHandler = new WebSocketHandler.WebSocketServerHandler();
+				if (enableMultiplexing) {
+					wsHandler.multiplexing = true;
+					WSMC.info("Enabling WSMC v2 multiplexing for " + url);
+				}
+
 				// 在管线中加入 WebSocket 处理器
 				if (ctx.pipeline().context("WsmcWebSocketServerHandler") != null) {
 					ctx.pipeline().remove(this);
 				} else {
-					ctx.pipeline().replace(this, "WsmcWebSocketServerHandler", new WebSocketHandler.WebSocketServerHandler());
+					ctx.pipeline().replace(this, "WsmcWebSocketServerHandler", wsHandler);
 				}
 
 				WSMC.debug("Opened Channel: " + ctx.channel());
@@ -127,7 +136,11 @@ public class HttpServerHandler extends ChannelInboundHandlerAdapter {
 					WebSocketServerHandshakerFactory.sendUnsupportedVersionResponse(ctx.channel());
 				} else {
 					WSMC.debug("Handshaking starts...");
-						handshaker.handshake(ctx.channel(), httpRequest)
+					HttpHeaders responseHeaders = new DefaultHttpHeaders();
+					if (enableMultiplexing) {
+						responseHeaders.set("X-WSMC-Version", "2");
+					}
+						handshaker.handshake(ctx.channel(), httpRequest, responseHeaders, ctx.channel().newPromise())
 							.addListener((future) -> {
 								if (future.isSuccess()) {
 									WSMC.info("WebSocket 握手完成: " + url);
