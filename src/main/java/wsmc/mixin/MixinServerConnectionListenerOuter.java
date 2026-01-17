@@ -54,15 +54,9 @@ public abstract class MixinServerConnectionListenerOuter {
     @Unique
     private EventLoopGroup wsmcWorkerGroup;
 
-    @Inject(method = "startTcpServerListener", at = @At("RETURN"), require = 0)
+    @Inject(method = "startTcpServerListener", at = @At("RETURN"))
     public void startTcpServerListener(InetAddress address, int port, CallbackInfo ci) {
         startWsmcTlsServer(address);
-    }
-
-    // In some versions, it might be named differently or just 'start'
-    @Inject(method = "start", at = @At("RETURN"), require = 0)
-    public void start(CallbackInfo ci) {
-        // Fallback injection
     }
 
     @Inject(method = "stop", at = @At("RETURN"))
