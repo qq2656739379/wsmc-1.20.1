@@ -32,6 +32,7 @@ jobs:
       uses: gradle/actions/setup-gradle@v3
       with:
         gradle-version: '8.10.2'  # 与本地 gradle-wrapper.properties 保持一致
+        cache-disabled: true  #cache-disabled: true  #
       
     # 【建议修改】进入 forge 目录并使用 wrapper 构建，确保环境绝对一致
     # 原先的 'gradle build' 使用的是全局命令，容易产生版本歧义
