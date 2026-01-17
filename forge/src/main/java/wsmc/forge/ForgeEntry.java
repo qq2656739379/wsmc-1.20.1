@@ -10,7 +10,7 @@ import io.netty.channel.Channel;
 
 import wsmc.WSMC;
 import wsmc.WebSocketHandler;
-import wsmc.plasmo.VoiceConnectionManager;
+// import wsmc.plasmo.VoiceConnectionManager;
 
 @Mod(WSMC.MODID)
 public class ForgeEntry {
@@ -22,13 +22,13 @@ public class ForgeEntry {
 		else
 			throw new RuntimeException("Duplicated Class Instantiation: net.mobz.forge.MobZ");
 
-		if (ModList.get().isLoaded("plasmovoice")) {
-			try {
-				PlasmoWrapper.load();
-			} catch (Throwable t) {
-				WSMC.info("Failed to load Plasmo Voice integration: " + t.getMessage());
-			}
-		}
+//		if (ModList.get().isLoaded("plasmovoice")) {
+//			try {
+//				PlasmoWrapper.load();
+//			} catch (Throwable t) {
+//				WSMC.info("Failed to load Plasmo Voice integration: " + t.getMessage());
+//			}
+//		}
 	}
 
 	@Mod.EventBusSubscriber(modid = WSMC.MODID, bus = Mod.EventBusSubscriber.Bus.MOD)
@@ -40,25 +40,25 @@ public class ForgeEntry {
 	public final static class ForgeEventBusHandler {
 		@SubscribeEvent
 		public static void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {
-			if (event.getEntity() instanceof ServerPlayer) {
-				ServerPlayer player = (ServerPlayer) event.getEntity();
-				if (player.connection != null && player.connection.connection != null) {
-					Connection netManager = player.connection.connection;
-					if (netManager.channel != null) {
-						Channel channel = netManager.channel;
-						if (channel.pipeline().get("WsmcWebSocketServerHandler") instanceof WebSocketHandler) {
-							WebSocketHandler handler = (WebSocketHandler) channel.pipeline().get("WsmcWebSocketServerHandler");
-							VoiceConnectionManager.get().register(player.getUUID(), handler);
-							WSMC.info("Registered Voice Handler for " + player.getName().getString());
-						}
-					}
-				}
-			}
+//			if (event.getEntity() instanceof ServerPlayer) {
+//				ServerPlayer player = (ServerPlayer) event.getEntity();
+//				if (player.connection != null && player.connection.connection != null) {
+//					Connection netManager = player.connection.connection;
+//					if (netManager.channel != null) {
+//						Channel channel = netManager.channel;
+//						if (channel.pipeline().get("WsmcWebSocketServerHandler") instanceof WebSocketHandler) {
+//							WebSocketHandler handler = (WebSocketHandler) channel.pipeline().get("WsmcWebSocketServerHandler");
+////							VoiceConnectionManager.get().register(player.getUUID(), handler);
+//							WSMC.info("Registered Voice Handler for " + player.getName().getString());
+//						}
+//					}
+//				}
+//			}
 		}
 
 		@SubscribeEvent
 		public static void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
-			VoiceConnectionManager.get().unregister(event.getEntity().getUUID());
+//			VoiceConnectionManager.get().unregister(event.getEntity().getUUID());
 		}
 	}
 }

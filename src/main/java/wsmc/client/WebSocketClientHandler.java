@@ -45,7 +45,7 @@ import wsmc.client.ConnectionEvent.Type;
 import wsmc.client.ConnectStageNotifier;
 import wsmc.client.StatusLogStore;
 import wsmc.client.ClientConfig;
-import wsmc.plasmo.VoiceClientManager;
+// import wsmc.plasmo.VoiceClientManager;
 
 public class WebSocketClientHandler extends WebSocketHandler {
 	private final WebSocketClientHandshaker handshaker;
@@ -237,7 +237,7 @@ public class WebSocketClientHandler extends WebSocketHandler {
 			pingFuture = null;
 		}
 		if (multiplexing) {
-			VoiceClientManager.get().clearActiveHandler();
+//			VoiceClientManager.get().clearActiveHandler();
 		}
 		WSMC.debug(this.inboundPrefix + " WebSocket Client disconnected!");
 		log(Type.WARN, "连接断开: " + this.targetInfo);
@@ -268,12 +268,12 @@ public class WebSocketClientHandler extends WebSocketHandler {
 					if ("2".equals(h.get("X-WSMC-Version"))) {
 						this.multiplexing = true;
 						log(Type.INFO, "Negotiated WSMC v2 (Multiplexing)");
-						VoiceClientManager.get().setActiveHandler(this);
-						int port = VoiceClientManager.get().getProxyPort();
-						if (port > 0) {
-							log(Type.INFO, "Voice Tunnel: 127.0.0.1:" + port);
-							WSMC.info("Plasmo Voice Tunnel Ready. Please set Plasmo Voice IP to 127.0.0.1 and Port to " + port);
-						}
+//						VoiceClientManager.get().setActiveHandler(this);
+//						int port = VoiceClientManager.get().getProxyPort();
+//						if (port > 0) {
+//							log(Type.INFO, "Voice Tunnel: 127.0.0.1:" + port);
+//							WSMC.info("Plasmo Voice Tunnel Ready. Please set Plasmo Voice IP to 127.0.0.1 and Port to " + port);
+//						}
 					}
 				}
 

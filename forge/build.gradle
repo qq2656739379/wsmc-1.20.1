@@ -83,6 +83,7 @@ sourceSets {
     	ext.refMap = 'wsmc.refmap.json'
         java {
             srcDir "../src/main/java"
+            exclude "wsmc/plasmo/**"
         }
         resources {
             srcDir "../src/main/resources"
@@ -140,9 +141,9 @@ dependencies {
     	exclude(group: 'io.netty')
     }
 
-    compileOnly "su.plo.voice.api:server:2.0.3"
-    compileOnly "su.plo.voice.api:client:2.0.3"
-    compileOnly "su.plo.voice.api:protocol:2.0.3"
+    // compileOnly "su.plo.voice.api:server:2.0.3"
+    // compileOnly "su.plo.voice.api:client:2.0.3"
+    // compileOnly "su.plo.voice.api:protocol:2.0.3"
 }
 
 mixin {
