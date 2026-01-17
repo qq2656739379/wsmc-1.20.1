@@ -263,6 +263,23 @@ public class WebSocketClientHandler extends WebSocketHandler {
 		Channel ch = ctx.channel();
 		if (!handshaker.isHandshakeComplete()) {
 			try {
+				// Feed the Handshaker: re-add handlers if aggressive mods (like PacketFixer) removed them
+				ChannelPipeline p = ctx.pipeline();
+				if (p.get(HttpClientCodec.class) == null) {
+					p.addFirst("WsmcHttpClient", new HttpClientCodec());
+				}
+				if (p.get(HttpObjectAggregator.class) == null) {
+					// Ensure Aggregator is after HttpClientCodec if it was missing too, or just first if codec was present
+					// Simpler here: just append to start, order matters less for removal, but name matters for some checks
+					String base = p.get("WsmcHttpClient") != null ? "WsmcHttpClient" : null;
+					if (base != null) {
+						p.addAfter(base, "WsmcHttpAggregator", new HttpObjectAggregator(parseMaxFrameLength()));
+					} else {
+						// Fallback if somehow codec is still missing or named differently
+						p.addFirst("WsmcHttpAggregator", new HttpObjectAggregator(parseMaxFrameLength()));
+					}
+				}
+
 				handshaker.finishHandshake(ch, (FullHttpResponse) msg);
 
 				if (msg instanceof FullHttpResponse) {
@@ -282,9 +299,8 @@ public class WebSocketClientHandler extends WebSocketHandler {
 				WSMC.debug(this.inboundPrefix + " WebSocket Client connected!");
 
 				// 握手成功后，清理 HTTP 处理器，并加入 WebSocket 帧编解码器
-				ChannelPipeline p = ctx.pipeline();
-				if (p.get("WsmcHttpClient") != null) p.remove("WsmcHttpClient");
-				if (p.get("WsmcHttpAggregator") != null) p.remove("WsmcHttpAggregator");
+				// ChannelPipeline p = ctx.pipeline(); // Already got above
+				// Netty's handshaker handles removal of http handlers now.
 
 				// 注入 WebSocketFrameEncoder / Decoder
 				int maxFramePayloadLength = parseMaxFrameLength();
@@ -307,6 +323,50 @@ public class WebSocketClientHandler extends WebSocketHandler {
 				}
 				if (p.get("wsmc-ws-encoder") == null) {
 					p.addBefore(finalAnchor, "wsmc-ws-encoder", encoder);
+				}
+
+				// Clean up residuals from aggressive mods (PacketFixer)
+				// Any unknown handlers at this point (other than our WS/Compression/SSL/Main) might be problematic
+				// We don't want to be too aggressive, but known problem patterns (like Varint21FrameDecoder) could be here
+				// For now, we rely on the fact that we have inserted our decoders *before* the main handler
+				// but potentially *after* garbage left by PacketFixer if it inserted at head.
+				// A safe check: if there is a 'splitter' or similar decoder before our wsmc-ws-decoder, remove it?
+				// Actually, PacketFixer often inserts at the very beginning (first).
+				// Our 'wsmc-ws-decoder' was added before 'WsmcCompressionHandler' (or Main).
+				// If PacketFixer inserted 'splitter' at the top, it would process bytes before us.
+				// WE MUST ENSURE wsmc-ws-decoder IS THE FIRST INBOUND HANDLER that touches ByteBufs.
+				// However, SSL handler is usually first.
+				// Order: SSL -> (PacketFixer stuff?) -> WS Decoder -> ...
+				// We should scan the pipeline and remove any known PacketFixer handlers or suspicious decoders
+				// that are NOT ours and NOT SSL.
+
+				for (String name : p.names()) {
+					// Don't touch our own stuff
+					if (name.startsWith("Wsmc") || name.startsWith("wsmc-")) continue;
+					// Don't touch SSL
+					if (p.get(name) instanceof SslHandler) continue;
+					// Don't touch the tail handler (Netty's DefaultChannelPipeline$TailContext) - names() returns user handlers mostly?
+					// Netty 4 names() returns list of names.
+					// If it looks like a frame decoder/splitter/prepender from Minecraft/PacketFixer, kill it.
+					// PacketFixer uses names like "splitter", "prepender", "decoder", "encoder", or "via-decoder"...
+					// We only want to clean up if we are sure it will interfere.
+					// Since we are tunneling WS over the connection, raw Minecraft packet decoders will CHOKE on WS frames.
+					// So yes, we must remove them.
+					Object h = p.get(name);
+					// Simple heuristic: if it's not us and not SSL, and looks like a codec, nuke it.
+					// Be careful not to nuke 'timeout' handler if it exists.
+					if ("timeout".equals(name)) continue;
+
+					// PacketFixer might add "splitter" (Varint21FrameDecoder)
+					// Safe to remove "splitter", "prepender", "decoder", "encoder", "packet_handler"
+					if (name.equals("splitter") || name.equals("prepender") || name.equals("decoder") || name.equals("encoder")) {
+						try {
+							p.remove(name);
+							WSMC.info("Removed conflicting handler: " + name);
+						} catch (Exception e) {
+							// ignore
+						}
+					}
 				}
 
 				log(Type.INFO, "握手成功: " + this.targetInfo);
