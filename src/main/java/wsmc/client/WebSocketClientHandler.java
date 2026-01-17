@@ -226,6 +226,30 @@ public class WebSocketClientHandler extends WebSocketHandler {
 	@Override
 	public void channelActive(ChannelHandlerContext ctx) throws Exception {
 		super.channelActive(ctx);
+
+		// --- [修复补丁 1：发送请求前的防御] ---
+		// Packet Fixer 可能在连接刚建立时就清空了管线。
+		// 在发送握手请求前，必须确保 HTTP 编解码器存在，并且在管线最前面 (addFirst)，
+		// 这样可以防止 Packet Fixer 的 Splitter (Varint21FrameDecoder) 拦截或破坏 HTTP 数据。
+
+		if (ctx.pipeline().get(HttpClientCodec.class) == null) {
+			WSMC.info("检测到 HttpClientCodec 缺失（channelActive），正在防御性恢复...");
+			ctx.pipeline().addFirst("WsmcHttpClient", new HttpClientCodec());
+		}
+
+		if (ctx.pipeline().get(HttpObjectAggregator.class) == null) {
+			 // Aggregator 加在 Codec 后面
+			 // 注意：这里需要确保 WsmcHttpClient 已经存在或刚被加回来
+			 int aggSize = parseMaxFrameLength();
+			 if (ctx.pipeline().get("WsmcHttpClient") != null) {
+				ctx.pipeline().addAfter("WsmcHttpClient", "WsmcHttpAggregator", new HttpObjectAggregator(aggSize));
+			 } else {
+				 // 兜底
+				 ctx.pipeline().addFirst("WsmcHttpAggregator", new HttpObjectAggregator(aggSize));
+			 }
+		}
+		// ---------------------------------------
+
 		log(Type.INFO, "开始握手: " + this.targetInfo);
 		ConnectStageNotifier.status("开始 WebSocket 握手: " + this.targetInfo);
 		handshaker.handshake(ctx.channel());
@@ -261,92 +285,50 @@ public class WebSocketClientHandler extends WebSocketHandler {
 	@Override
 	public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
 		Channel ch = ctx.channel();
+
+		// --- [修复补丁 2：收到响应时的防御] ---
 		if (!handshaker.isHandshakeComplete()) {
 			try {
-				// Feed the Handshaker: re-add handlers if aggressive mods (like PacketFixer) removed them
-				ChannelPipeline p = ctx.pipeline();
+				// Packet Fixer 可能在握手期间又把处理器删了。
+				// 我们再次检查，确保 finishHandshake 能找到它们并正常移除，而不是报错。
 
-				// 1. Check and revive HttpClientCodec
-				if (p.get(HttpClientCodec.class) == null) {
-					// Ensure it is added at the beginning or before Aggregator if possible
-					p.addFirst("WsmcHttpClient", new HttpClientCodec());
+				if (ctx.pipeline().get(HttpClientCodec.class) == null) {
+					WSMC.info("检测到 HttpClientCodec 缺失（channelRead），正在防御性恢复...");
+					ctx.pipeline().addFirst("WsmcHttpClient", new HttpClientCodec());
 				}
 
-				// 2. Check and revive HttpObjectAggregator
-				if (p.get(HttpObjectAggregator.class) == null) {
-					int aggSize = parseMaxFrameLength();
-					if (p.get("WsmcHttpClient") != null) {
-						p.addAfter("WsmcHttpClient", "WsmcHttpAggregator", new HttpObjectAggregator(aggSize));
-					} else {
-						// Fallback: just add first if codec is missing/named weirdly, but we just added it above if missing
-						p.addFirst("WsmcHttpAggregator", new HttpObjectAggregator(aggSize));
-					}
+				if (ctx.pipeline().get(HttpObjectAggregator.class) == null) {
+					 int aggSize = parseMaxFrameLength();
+					 if (ctx.pipeline().get("WsmcHttpClient") != null) {
+						ctx.pipeline().addAfter("WsmcHttpClient", "WsmcHttpAggregator", new HttpObjectAggregator(aggSize));
+					 }
 				}
 
+				// 正常完成握手
 				handshaker.finishHandshake(ch, (FullHttpResponse) msg);
 
+				// WSMC 协议协商逻辑
 				if (msg instanceof FullHttpResponse) {
 					HttpHeaders h = ((FullHttpResponse) msg).headers();
 					if ("2".equals(h.get("X-WSMC-Version"))) {
 						this.multiplexing = true;
 						log(Type.INFO, "Negotiated WSMC v2 (Multiplexing)");
-//						VoiceClientManager.get().setActiveHandler(this);
-//						int port = VoiceClientManager.get().getProxyPort();
-//						if (port > 0) {
-//							log(Type.INFO, "Voice Tunnel: 127.0.0.1:" + port);
-//							WSMC.info("Plasmo Voice Tunnel Ready. Please set Plasmo Voice IP to 127.0.0.1 and Port to " + port);
-//						}
 					}
 				}
 
 				WSMC.debug(this.inboundPrefix + " WebSocket Client connected!");
-
-				// 注入 WebSocketFrameEncoder / Decoder
-				int maxFramePayloadLength = parseMaxFrameLength();
-				WebSocket13FrameDecoder decoder = new WebSocket13FrameDecoder(false, true, maxFramePayloadLength);
-				WebSocket13FrameEncoder encoder = new WebSocket13FrameEncoder(true);
-
-				String anchor = "WsmcCompressionHandler";
-				// 如果压缩处理器不存在（比如被移除或没加），则尝试放在 WsmcWebSocketClientHandler 前面
-				if (p.get(anchor) == null) {
-					anchor = "WsmcWebSocketClientHandler";
-				}
-
-				// 注意 Inbound 顺序: ... -> Decoder -> Compression -> Handler
-				// Outbound 顺序: ... -> Encoder -> Compression -> Handler
-				// 所以都加在 Compression 前面即可
-				String finalAnchor = p.get(anchor) != null ? anchor : ctx.name();
-
-				if (p.get("wsmc-ws-decoder") == null) {
-					p.addBefore(finalAnchor, "wsmc-ws-decoder", decoder);
-				}
-				if (p.get("wsmc-ws-encoder") == null) {
-					p.addBefore(finalAnchor, "wsmc-ws-encoder", encoder);
-				}
-
-				// NOTE: Previous logic aggressively removed "splitter", "decoder", "encoder".
-				// THIS WAS WRONG. PacketFixer/Minecraft needs these handlers for packet processing.
-				// We do NOT remove them anymore.
-				// The only potential conflict is 'splitter' (Varint21FrameDecoder) if it consumes WS frames.
-				// However, our 'wsmc-ws-decoder' (added above) unwraps the WS frame and fires a channelRead with the payload.
-				// If the payload is a standard Minecraft TCP stream (VarInt Length + Packet), then 'splitter' IS REQUIRED to split it.
-				// So we leave 'splitter' alone too.
-
-				// 3. Optional cleanup (commented out as per instruction)
-				if (p.get("splitter") != null) {
-					// ctx.pipeline().remove("splitter"); // Uncomment only if needed
-				}
-
 				log(Type.INFO, "握手成功: " + this.targetInfo);
 				ConnectStageNotifier.status("握手成功，进入登录: " + this.targetInfo);
 				startPing(ctx);
 				handshakeFuture.setSuccess();
+
+				// 注意：握手成功后，不要去动 decoder/encoder，
+				// 让 Packet Fixer 的处理器留在那，只要它们不干扰 WebSocket 帧（通常经过 HTTP 升级后它们就接触不到数据了）。
+
 			} catch (WebSocketHandshakeException e) {
 				WSMC.debug(this.inboundPrefix + " WebSocket Client failed to connect");
 				handshakeFuture.setFailure(e);
-				String detail = (msg instanceof FullHttpResponse)
-					? formatHttpResponse((FullHttpResponse) msg)
-					: "";
+				String detail = (msg instanceof FullHttpResponse) ? formatHttpResponse((FullHttpResponse) msg) : "";
 				log(Type.ERROR, "握手失败: " + e.getMessage() + (detail.isEmpty() ? "" : " | " + detail));
 				ConnectStageNotifier.status("握手失败: " + e.getMessage());
 			}
