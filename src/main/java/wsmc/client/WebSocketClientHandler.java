@@ -300,13 +300,13 @@ public class WebSocketClientHandler extends WebSocketHandler {
 				// 注意 Inbound 顺序: ... -> Decoder -> Compression -> Handler
 				// Outbound 顺序: ... -> Encoder -> Compression -> Handler
 				// 所以都加在 Compression 前面即可
-				if (p.get(anchor) != null) {
-					p.addBefore(anchor, "ws-decoder", decoder);
-					p.addBefore(anchor, "ws-encoder", encoder);
-				} else {
-					// Fallback (should not happen if this handler is running)
-					p.addBefore(ctx.name(), "ws-decoder", decoder);
-					p.addBefore(ctx.name(), "ws-encoder", encoder);
+				String finalAnchor = p.get(anchor) != null ? anchor : ctx.name();
+
+				if (p.get("wsmc-ws-decoder") == null) {
+					p.addBefore(finalAnchor, "wsmc-ws-decoder", decoder);
+				}
+				if (p.get("wsmc-ws-encoder") == null) {
+					p.addBefore(finalAnchor, "wsmc-ws-encoder", encoder);
 				}
 
 				log(Type.INFO, "握手成功: " + this.targetInfo);
