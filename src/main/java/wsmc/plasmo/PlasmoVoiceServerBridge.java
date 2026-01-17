@@ -31,10 +31,18 @@ public class PlasmoVoiceServerBridge implements AddonInitializer {
 	private final Map<UUID, DatagramSocket> playerSockets = new ConcurrentHashMap<>();
 	private final ExecutorService ioExecutor = Executors.newCachedThreadPool();
 	private boolean running = true;
+	private InetAddress localHost;
 
 	@Override
 	public void onAddonInitialize() {
 		System.out.println("[WSMC] Plasmo Voice Server Bridge Initialized");
+
+		try {
+			this.localHost = InetAddress.getLocalHost();
+		} catch (Exception e) {
+			System.out.println("[WSMC] Failed to resolve local host: " + e.getMessage());
+			e.printStackTrace();
+		}
 
 		try {
 			// Reflection to get Config and Port
@@ -55,14 +63,14 @@ public class PlasmoVoiceServerBridge implements AddonInitializer {
 	}
 
 	private void onVoicePacketFromWs(UUID playerId, ByteBuf packet) {
-		if (voicePort <= 0) return;
+		if (voicePort <= 0 || localHost == null) return;
 
 		try {
 			DatagramSocket socket = playerSockets.computeIfAbsent(playerId, this::createSocket);
 			if (socket != null) {
 				byte[] data = new byte[packet.readableBytes()];
 				packet.readBytes(data);
-				DatagramPacket udpPacket = new DatagramPacket(data, data.length, InetAddress.getLocalHost(), voicePort);
+				DatagramPacket udpPacket = new DatagramPacket(data, data.length, localHost, voicePort);
 				socket.send(udpPacket);
 			}
 		} catch (Exception e) {
