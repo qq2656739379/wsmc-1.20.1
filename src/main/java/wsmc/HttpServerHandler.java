@@ -28,13 +28,17 @@ public class HttpServerHandler extends ChannelInboundHandlerAdapter {
 	 */
 	public final static String maxFramePayloadLength = System.getProperty("wsmc.maxFramePayloadLength", "2097152");
 
-	private static int parseMaxFrameLength() {
+	private static final int MAX_FRAME_PAYLOAD_LENGTH;
+
+	static {
+		int length;
 		try {
-			return Integer.parseInt(HttpServerHandler.maxFramePayloadLength);
+			length = Integer.parseInt(HttpServerHandler.maxFramePayloadLength);
 		} catch (Exception e) {
 			WSMC.info("Invalid maxFramePayloadLength='" + HttpServerHandler.maxFramePayloadLength + "', fallback to 2097152");
-			return 2097152;
+			length = 2097152;
 		}
+		MAX_FRAME_PAYLOAD_LENGTH = length;
 	}
 
 	/**
@@ -124,7 +128,7 @@ public class HttpServerHandler extends ChannelInboundHandlerAdapter {
 
 				WSMC.debug("Opened Channel: " + ctx.channel());
 
-				int maxFramePayloadLength = parseMaxFrameLength();
+				int maxFramePayloadLength = MAX_FRAME_PAYLOAD_LENGTH;
 				WSMC.info("WSMC maxFramePayloadLength=" + maxFramePayloadLength);
 				// 发起握手，将 HTTP 升级为 WebSocket 协议
 				WebSocketServerHandshakerFactory wsFactory =
