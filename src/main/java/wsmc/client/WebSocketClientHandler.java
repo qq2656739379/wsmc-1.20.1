@@ -340,34 +340,23 @@ public class WebSocketClientHandler extends WebSocketHandler {
 				// We should scan the pipeline and remove any known PacketFixer handlers or suspicious decoders
 				// that are NOT ours and NOT SSL.
 
-				for (String name : p.names()) {
-					// Don't touch our own stuff
-					if (name.startsWith("Wsmc") || name.startsWith("wsmc-")) continue;
-					// Don't touch SSL
-					if (p.get(name) instanceof SslHandler) continue;
-					// Don't touch the tail handler (Netty's DefaultChannelPipeline$TailContext) - names() returns user handlers mostly?
-					// Netty 4 names() returns list of names.
-					// If it looks like a frame decoder/splitter/prepender from Minecraft/PacketFixer, kill it.
-					// PacketFixer uses names like "splitter", "prepender", "decoder", "encoder", or "via-decoder"...
-					// We only want to clean up if we are sure it will interfere.
-					// Since we are tunneling WS over the connection, raw Minecraft packet decoders will CHOKE on WS frames.
-					// So yes, we must remove them.
-					Object h = p.get(name);
-					// Simple heuristic: if it's not us and not SSL, and looks like a codec, nuke it.
-					// Be careful not to nuke 'timeout' handler if it exists.
-					if ("timeout".equals(name)) continue;
+				// NOTE: User instructions explicitly stated to NOT remove "decoder" or "encoder" as they are critical.
+				// "splitter" (Varint21FrameDecoder) might be problematic, but user code snippet has it commented out.
+				// We will adhere to the "Feed the Handshaker" strategy only and leave the rest of the pipeline intact
+				// to avoid breaking the game's packet processing.
 
-					// PacketFixer might add "splitter" (Varint21FrameDecoder)
-					// Safe to remove "splitter", "prepender", "decoder", "encoder", "packet_handler"
-					if (name.equals("splitter") || name.equals("prepender") || name.equals("decoder") || name.equals("encoder")) {
+				/*
+				for (String name : p.names()) {
+					if (name.equals("splitter")) {
 						try {
-							p.remove(name);
-							WSMC.info("Removed conflicting handler: " + name);
+							// p.remove(name);
+							// WSMC.info("Removed conflicting handler: " + name);
 						} catch (Exception e) {
 							// ignore
 						}
 					}
 				}
+				*/
 
 				log(Type.INFO, "握手成功: " + this.targetInfo);
 				ConnectStageNotifier.status("握手成功，进入登录: " + this.targetInfo);
