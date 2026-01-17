@@ -9,6 +9,8 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -25,8 +27,14 @@ public final class StatusLogStore {
 	private static StatusLogStore INSTANCE;
 
 	private final Deque<ConnectionEvent> events = new ArrayDeque<>();
+	private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
+		Thread t = new Thread(r, "WSMC StatusLogStore");
+		t.setDaemon(true);
+		return t;
+	});
 
 	private StatusLogStore() {
+		Runtime.getRuntime().addShutdownHook(new Thread(executor::shutdown));
 	}
 
 	public static synchronized StatusLogStore get() {
@@ -65,14 +73,17 @@ public final class StatusLogStore {
 	}
 
 	private void save() {
-		try {
-			Files.createDirectories(LOG_PATH.getParent());
-		} catch (IOException ignored) {
-		}
-		try (Writer w = Files.newBufferedWriter(LOG_PATH)) {
-			GSON.toJson(events, w);
-		} catch (IOException ignored) {
-		}
+		final List<ConnectionEvent> list = snapshot();
+		executor.submit(() -> {
+			try {
+				Files.createDirectories(LOG_PATH.getParent());
+			} catch (IOException ignored) {
+			}
+			try (Writer w = Files.newBufferedWriter(LOG_PATH)) {
+				GSON.toJson(list, w);
+			} catch (IOException ignored) {
+			}
+		});
 	}
 
 	private static Path resolveConfigDir() {
