@@ -5,6 +5,7 @@
 	"refmap": "wsmc.refmap.json",
 	"mixins": [
 		"MixinServerConnectionListener",
+		"MixinServerConnectionListenerOuter",
 		"MixinConnection",
 		"MixinConnectionChInit"
 	],

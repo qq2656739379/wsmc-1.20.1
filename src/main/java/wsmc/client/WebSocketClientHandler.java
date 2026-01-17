@@ -30,6 +30,8 @@ import io.netty.handler.codec.http.websocketx.WebSocketClientHandshakerFactory;
 import io.netty.handler.codec.http.websocketx.WebSocketFrame;
 import io.netty.handler.codec.http.websocketx.WebSocketHandshakeException;
 import io.netty.handler.codec.http.websocketx.WebSocketVersion;
+import io.netty.handler.codec.http.websocketx.WebSocket13FrameDecoder;
+import io.netty.handler.codec.http.websocketx.WebSocket13FrameEncoder;
 import io.netty.handler.codec.http.websocketx.extensions.compression.WebSocketClientCompressionHandler;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
@@ -278,6 +280,35 @@ public class WebSocketClientHandler extends WebSocketHandler {
 				}
 
 				WSMC.debug(this.inboundPrefix + " WebSocket Client connected!");
+
+				// 握手成功后，清理 HTTP 处理器，并加入 WebSocket 帧编解码器
+				ChannelPipeline p = ctx.pipeline();
+				if (p.get("WsmcHttpClient") != null) p.remove("WsmcHttpClient");
+				if (p.get("WsmcHttpAggregator") != null) p.remove("WsmcHttpAggregator");
+
+				// 注入 WebSocketFrameEncoder / Decoder
+				int maxFramePayloadLength = parseMaxFrameLength();
+				WebSocket13FrameDecoder decoder = new WebSocket13FrameDecoder(false, true, maxFramePayloadLength);
+				WebSocket13FrameEncoder encoder = new WebSocket13FrameEncoder(true);
+
+				String anchor = "WsmcCompressionHandler";
+				// 如果压缩处理器不存在（比如被移除或没加），则尝试放在 WsmcWebSocketClientHandler 前面
+				if (p.get(anchor) == null) {
+					anchor = "WsmcWebSocketClientHandler";
+				}
+
+				// 注意 Inbound 顺序: ... -> Decoder -> Compression -> Handler
+				// Outbound 顺序: ... -> Encoder -> Compression -> Handler
+				// 所以都加在 Compression 前面即可
+				if (p.get(anchor) != null) {
+					p.addBefore(anchor, "ws-decoder", decoder);
+					p.addBefore(anchor, "ws-encoder", encoder);
+				} else {
+					// Fallback (should not happen if this handler is running)
+					p.addBefore(ctx.name(), "ws-decoder", decoder);
+					p.addBefore(ctx.name(), "ws-encoder", encoder);
+				}
+
 				log(Type.INFO, "握手成功: " + this.targetInfo);
 				ConnectStageNotifier.status("握手成功，进入登录: " + this.targetInfo);
 				startPing(ctx);
