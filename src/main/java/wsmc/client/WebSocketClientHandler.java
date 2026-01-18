@@ -320,19 +320,13 @@ public class WebSocketClientHandler extends WebSocketHandler {
 				startPing(ctx);
 				handshakeFuture.setSuccess();
 
-				// --- [兼容 PacketFixer] ---
-				// 握手成功后，我们不能简单移除 splitter，因为 PacketFixer 可能会把它加回来。
-				// 所以我们用一个“直通处理器”替换它，既保留了名字（骗过 PacketFixer），又不阻碍数据。
+				// -------------------------------------------------------------------------
+				// [正确配置]
+				// 1. 移除 PacketFixer 的 splitter (解码器) -> 解决收包被拦截的问题
+				// -------------------------------------------------------------------------
 				if (ctx.pipeline().get("splitter") != null) {
-					WSMC.info("检测到 PacketFixer 的 splitter，正在替换为直通处理器...");
-
-					ctx.pipeline().replace("splitter", "splitter", new io.netty.channel.ChannelInboundHandlerAdapter() {
-						@Override
-						public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-							// 直接放行数据，不读取长度前缀
-							ctx.fireChannelRead(msg);
-						}
-					});
+					WSMC.info("移除 PacketFixer 的 splitter 以允许 WebSocket 数据通过...");
+					ctx.pipeline().remove("splitter");
 				}
 
 				// 注意：不要移除 prepender！
