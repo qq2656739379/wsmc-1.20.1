@@ -31,21 +31,31 @@ public class MixinConnectScreenThread {
 		this.serverAddress = serverAddress;
 	}
 
-	@Inject(method = "run", require = 1, at = @At(value = "INVOKE",
-			target = "Lnet/minecraft/network/Connection;connectToServer(Ljava/net/InetSocketAddress;Z)Lnet/minecraft/network/Connection;"))
-	public void beforeCallConnect(CallbackInfo callback) {
-		IWebSocketServerAddress wsAddress = IWebSocketServerAddress.from(serverAddress);
+	// [CHANGE] Replaced injection into connectToServer with HEAD injection to avoid crash with FancyMenu
+	@Inject(method = "run", at = @At("HEAD"))
+	public void onRunStart(CallbackInfo ci) {
+		if (this.serverAddress != null) {
+			IWebSocketServerAddress wsAddr = IWebSocketServerAddress.from(this.serverAddress);
 
-		// Push to ArgHolder so MixinConnection can pick it up
-		IConnectionEx.connectToServerArg.push(wsAddress);
+			// Always logging intended connection attempt for debugging
+			WSMC.debug("MixinConnectScreenThread: Run start. Target: " + serverAddress.getHost());
 
-		WSMC.debug("MixinConnectScreenThread: 准备调用 Connection.connectToServer，目标=" + serverAddress.getHost() + ":" + serverAddress.getPort()
-				+ " ws=" + (wsAddress.isVanilla() ? "vanilla" : "ws")
-				+ " rawHost=" + wsAddress.getRawHost());
-		WSMC.debug("MixinConnectScreenThread: Pushed wsInfo to ArgHolder");
+			if (!wsAddr.isVanilla()) {
+				// Push to ArgHolder so MixinConnection can pick it up in its constructor
+				IConnectionEx.connectToServerArg.push(wsAddr);
+				WSMC.info("MixinConnectScreenThread: Pushed WS address to ArgHolder: " + wsAddr.getRawHost());
 
-		String mode = wsAddress.isVanilla() ? "原版 TCP" : "WebSocket";
-		StatusLogStore.get().append(ConnectionEvent.Type.INFO, "开始建立 TCP 连接 (" + mode + "): " + serverAddress.toString());
-		ConnectStageNotifier.status("开始建立 TCP 连接 (" + mode + "): " + serverAddress.toString());
+				String mode = "WebSocket";
+				StatusLogStore.get().append(ConnectionEvent.Type.INFO, "开始建立 TCP 连接 (" + mode + "): " + serverAddress.toString());
+				ConnectStageNotifier.status("开始建立 TCP 连接 (" + mode + "): " + serverAddress.toString());
+			} else {
+				// Also handle vanilla case logging if needed, or leave it as is
+				// Previously only logged for non-vanilla or generally before connect
+				// Re-adding the log that was present in the old injection for consistency
+				String mode = "原版 TCP";
+				StatusLogStore.get().append(ConnectionEvent.Type.INFO, "开始建立 TCP 连接 (" + mode + "): " + serverAddress.toString());
+				ConnectStageNotifier.status("开始建立 TCP 连接 (" + mode + "): " + serverAddress.toString());
+			}
+		}
 	}
 }
