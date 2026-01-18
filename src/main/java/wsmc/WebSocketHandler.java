@@ -164,6 +164,9 @@ public abstract class WebSocketHandler extends ChannelDuplexHandler {
 			} else {
 				WSMC.debug("Unsupported WebSocketFrame: " + msg.getClass().getName());
 			}
+		} else {
+			// Pass through non-WebSocket messages (e.g. ByteBufs if decoder is missing)
+			ctx.fireChannelRead(msg);
 		}
 	}
 

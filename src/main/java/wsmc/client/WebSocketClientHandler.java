@@ -322,6 +322,16 @@ public class WebSocketClientHandler extends WebSocketHandler {
 				startPing(ctx);
 				handshakeFuture.setSuccess();
 
+				// --- [新增：强制移除 Packet Fixer 的 Splitter] ---
+				// 既然握手成功了，WebSocketHandler 会负责解包。
+				// Packet Fixer 的 splitter (Varint21FrameDecoder) 可能会卡死数据流。
+				// 尝试移除它，让数据直接流向 Decoder。
+				if (ctx.pipeline().get("splitter") != null) {
+					WSMC.info("尝试移除冲突的 Splitter 以解决卡登录问题...");
+					ctx.pipeline().remove("splitter");
+				}
+				// ------------------------------------------------
+
 				// 注意：握手成功后，不要去动 decoder/encoder，
 				// 让 Packet Fixer 的处理器留在那，只要它们不干扰 WebSocket 帧（通常经过 HTTP 升级后它们就接触不到数据了）。
 
