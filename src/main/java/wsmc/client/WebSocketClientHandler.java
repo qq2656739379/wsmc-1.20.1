@@ -20,7 +20,6 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.ByteToMessageDecoder;
-import io.netty.handler.codec.MessageToByteEncoder;
 import io.netty.handler.codec.http.DefaultHttpHeaders;
 import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpClientCodec;
@@ -376,50 +375,14 @@ public class WebSocketClientHandler extends WebSocketHandler {
 						}
 					});
 				}
-
 				// =========================================================================
-				// 2. [新增关键修复] 替换 Prepender (解决发包崩溃: Can't serialize unregistered packet)
-				// PacketFixer 的编码器可能会拦截 WSMC 的特定数据包，我们需要把它也替换成纯净版。
-				// =========================================================================
-				if (ctx.pipeline().get("prepender") != null) {
-					WSMC.info("检测到 PacketFixer，正在用纯净版前缀器替换 prepender...");
 
-					ctx.pipeline().replace("prepender", "prepender", new MessageToByteEncoder<ByteBuf>() {
-						@Override
-						protected void encode(ChannelHandlerContext ctx, ByteBuf msg, ByteBuf out) throws Exception {
-							// 计算包长度 (VarInt)
-							int bodyLen = msg.readableBytes();
-							int headerLen = getVarIntSize(bodyLen);
+				// 依然保留 prepender (编码器)，不要动它
+				// 服务器期望收到带有 VarInt 长度前缀的数据包 ([Length][ID][Data])。
+				// 如果移除 prepender，客户端只发送 [ID][Data]，会导致服务器解析错位并卡死。
 
-							// 申请空间：长度头 + 数据体
-							out.ensureWritable(headerLen + bodyLen);
-
-							// 1. 写入 VarInt 长度
-							writeVarInt(out, bodyLen);
-
-							// 2. 写入原始数据
-							out.writeBytes(msg);
-						}
-
-						// --- 辅助方法：计算 VarInt 字节数 ---
-						private int getVarIntSize(int input) {
-							for (int i = 1; i < 5; i++) {
-								if ((input & -1 << i * 7) == 0) return i;
-							}
-							return 5;
-						}
-
-						// --- 辅助方法：写入 VarInt ---
-						private void writeVarInt(ByteBuf buf, int input) {
-							while ((input & -128) != 0) {
-								buf.writeByte(input & 127 | 128);
-								input >>>= 7;
-							}
-							buf.writeByte(input);
-						}
-					});
-				}
-				// =========================================================================
+				// 注意：握手成功后，不要去动 decoder/encoder，
+				// 让 Packet Fixer 的处理器留在那，只要它们不干扰 WebSocket 帧（通常经过 HTTP 升级后它们就接触不到数据了）。
 
 			} catch (WebSocketHandshakeException e) {
 				WSMC.debug(this.inboundPrefix + " WebSocket Client failed to connect");
