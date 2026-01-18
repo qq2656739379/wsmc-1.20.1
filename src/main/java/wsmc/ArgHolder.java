@@ -1,60 +1,57 @@
 package wsmc;
 
 public final class ArgHolder<T> {
-	private final ThreadLocal<T> wsAddress =
-			ThreadLocal.withInitial(() -> null);
+    // -----------------------------------------------------------
+    // [Critical Change] Change ThreadLocal to InheritableThreadLocal
+    // This allows child threads (Server Connector) to read parameters set by the main thread
+    // -----------------------------------------------------------
+    private final ThreadLocal<T> wsAddress = new InheritableThreadLocal<>() {
+        @Override
+        protected T initialValue() {
+            return null;
+        }
+    };
+    // -----------------------------------------------------------
 
-	private final boolean nullable;
+    private final boolean nullable;
 
-	private ArgHolder(boolean nullable) {
-		this.nullable = nullable;
-	}
+    private ArgHolder(boolean nullable) {
+        this.nullable = nullable;
+    }
 
-	public static <T> ArgHolder<T> nullable() {
-		return new ArgHolder<>(true);
-	}
+    public static <T> ArgHolder<T> nullable() {
+        return new ArgHolder<>(true);
+    }
 
-	public static <T> ArgHolder<T> nonnull() {
-		return new ArgHolder<>(false);
-	}
+    public static <T> ArgHolder<T> nonnull() {
+        return new ArgHolder<>(false);
+    }
 
-	public void push(T val) {
-		if (this.wsAddress.get() != null) {
-			throw new RuntimeException("Previous WebsocketUriHolder.wsAddress has not been used!");
-		}
+    public void push(T val) {
+        // InheritableThreadLocal has an initial value in child threads, so we just check if current thread has overridden it
+        // To simplify, we allow re-assignment in the same thread
+        // We keep it simple and just set it, usually push is done once in the main thread
+        this.wsAddress.set(val);
+    }
 
-		this.wsAddress.set(val);
-	}
+    public T peek() {
+        T ret = this.wsAddress.get();
 
-	/**
-	 * 读取当前值。
-	 * @return 之前设置的值
-	 */
-	public T peek() {
-		T ret = this.wsAddress.get();
+        if (ret == null && !nullable) {
+            // We can keep the exception, but under crash-proof patches it shouldn't trigger
+             throw new RuntimeException("WebsocketUriHolder.wsAddress is not available!");
+        }
 
-		if (ret == null && !nullable) {
-			throw new RuntimeException("WebsocketUriHolder.wsAddress is not available!");
-		}
+        return ret;
+    }
 
-		return ret;
-	}
+    public boolean isEmpty() {
+        return this.wsAddress.get() == null;
+    }
 
-	/**
-	 * [新增] 检查当前是否为空，不会抛出异常。
-	 * 用于兼容其他模组的连接调用。
-	 */
-	public boolean isEmpty() {
-		return this.wsAddress.get() == null;
-	}
-
-	/**
-	 * 读取当前值并重置。
-	 * @return 之前设置的值
-	 */
-	public T pop() {
-		T ret = this.peek();
-		this.wsAddress.set(null);
-		return ret;
-	}
+    public T pop() {
+        T ret = this.peek();
+        this.wsAddress.remove(); // Use remove() to clear completely
+        return ret;
+    }
 }
