@@ -3,6 +3,7 @@ package wsmc.client;
 import java.net.URI;
 import java.net.URL;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -12,11 +13,13 @@ import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLException;
 import javax.net.ssl.SSLParameters;
 
+import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
+import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.handler.codec.http.DefaultHttpHeaders;
 import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpClientCodec;
@@ -320,16 +323,61 @@ public class WebSocketClientHandler extends WebSocketHandler {
 				startPing(ctx);
 				handshakeFuture.setSuccess();
 
+				// =========================================================================
+				// [终极方案] 替换 PacketFixer 的分离器
 				// -------------------------------------------------------------------------
-				// [正确配置]
-				// 1. 移除 PacketFixer 的 splitter (解码器) -> 解决收包被拦截的问题
-				// -------------------------------------------------------------------------
-				if (ctx.pipeline().get("splitter") != null) {
-					WSMC.info("移除 PacketFixer 的 splitter 以允许 WebSocket 数据通过...");
-					ctx.pipeline().remove("splitter");
-				}
+				// 1. 我们不能 "remove" 它，否则客户端读不懂包长度，会卡在登录中。
+				// 2. 我们不能 "keep" 它，否则 PacketFixer 会认为 WebSocket 数据异常而拦截。
+				// 3. 解决方法：用一个我们自己写的“纯净版”分离器替换它！
+				// =========================================================================
 
-				// 注意：不要移除 prepender！
+				if (ctx.pipeline().get("splitter") != null) {
+					WSMC.info("检测到 PacketFixer，正在用纯净版分离器替换 splitter...");
+
+					ctx.pipeline().replace("splitter", "splitter", new ByteToMessageDecoder() {
+						@Override
+						protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
+							// 这是一个最简化的 VarInt 分离器逻辑，完全复刻原版行为，没有任何防御检测
+							in.markReaderIndex();
+
+							byte[] buf = new byte[3]; // Minecraft 包长度通常不超过 3 字节 VarInt
+							for (int i = 0; i < buf.length; i++) {
+								if (!in.isReadable()) {
+									in.resetReaderIndex();
+									return;
+								}
+
+								buf[i] = in.readByte();
+								if (buf[i] >= 0) {
+									// 找到 VarInt 结尾，计算长度
+									int length = 0;
+									int shift = 0;
+									for (int j = 0; j <= i; j++) {
+										length |= (buf[j] & 127) << shift;
+										shift += 7;
+									}
+
+									// 检查剩余数据是否足够
+									if (in.readableBytes() < length) {
+										in.resetReaderIndex();
+										return;
+									}
+
+									// 切出数据包，交给下一个 Handler (Decoder)
+									out.add(in.readBytes(length));
+									return;
+								}
+							}
+
+							// 如果读了 3 个字节还没读完长度（极罕见），重置等待更多数据
+							// 或者这根本不是一个合法的 Minecraft 包
+							in.resetReaderIndex();
+						}
+					});
+				}
+				// =========================================================================
+
+				// 依然保留 prepender (编码器)，不要动它
 				// 服务器期望收到带有 VarInt 长度前缀的数据包 ([Length][ID][Data])。
 				// 如果移除 prepender，客户端只发送 [ID][Data]，会导致服务器解析错位并卡死。
 
