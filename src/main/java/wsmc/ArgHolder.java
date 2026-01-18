@@ -41,6 +41,14 @@ public final class ArgHolder<T> {
 	}
 
 	/**
+	 * [新增] 检查当前是否为空，不会抛出异常。
+	 * 用于兼容其他模组的连接调用。
+	 */
+	public boolean isEmpty() {
+		return this.wsAddress.get() == null;
+	}
+
+	/**
 	 * 读取当前值并重置。
 	 * @return 之前设置的值
 	 */
