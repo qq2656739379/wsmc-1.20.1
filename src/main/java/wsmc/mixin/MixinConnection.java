@@ -14,6 +14,7 @@ import com.llamalad7.mixinextras.sugar.Local;
 import io.netty.handler.codec.http.HttpRequest;
 import net.minecraft.network.Connection;
 import net.minecraft.network.PacketListener;
+import net.minecraft.network.protocol.PacketFlow;
 import wsmc.IConnectionEx;
 import wsmc.IWebSocketServerAddress;
 import wsmc.WSMC;
@@ -31,24 +32,19 @@ public class MixinConnection implements IConnectionEx {
 	@Unique
 	private HttpRequest wsHandshakeRequest = null;
 
-	@Inject(method = "connectToServer", require = 1, at = @At(value = "INVOKE",
-			target = "Lnet/minecraft/network/Connection;connect(Ljava/net/InetSocketAddress;ZLnet/minecraft/network/Connection;)Lio/netty/channel/ChannelFuture;"))
-	private static void beforeCallConnect(CallbackInfoReturnable<Connection> callback, @Local(ordinal = 0, argsOnly = false) Connection connection) {
-		WSMC.debug("MixinConnection: connectToServer called. Checking ArgHolder...");
-		// --- [兼容性修复 1] 防止空栈异常 ---
-		// 如果 IConnectionEx.connectToServerArg 为空，说明这次连接不是 WSMC 发起的
-		// (可能是 FancyMenu、ServerStatusPinger 或 PacketFixer 发起的)
-		// 此时直接返回，不要执行 pop()，否则会导致客户端崩溃。
-		if (IConnectionEx.connectToServerArg.isEmpty()) {
-			WSMC.debug("MixinConnection: ArgHolder is empty. Not a WSMC initiated connection (or pushed by other mod?).");
-			return;
-		}
-		// ---------------------------------
+	// [CHANGE] Replaced injection into connectToServer with Constructor injection
+	@Inject(method = "<init>", at = @At("RETURN"))
+	public void onConstructed(PacketFlow flow, CallbackInfo ci) {
+		// Use peek/pop from ArgHolder. Note: IConnectionEx.connectToServerArg is the ArgHolder instance.
+		// The previous code used IConnectionEx.connectToServerArg.pop()
 
-		IWebSocketServerAddress wsAddress = IConnectionEx.connectToServerArg.pop();
-		IConnectionEx con = (IConnectionEx) connection;
-		con.setWsInfo(wsAddress);
-		WSMC.debug("MixinConnection: Popped wsInfo from ArgHolder and set on Connection. Host=" + wsAddress.getRawHost());
+		if (!IConnectionEx.connectToServerArg.isEmpty()) {
+			IWebSocketServerAddress wsAddress = IConnectionEx.connectToServerArg.pop();
+			if (wsAddress != null) {
+				this.setWsInfo(wsAddress);
+				WSMC.info("MixinConnection: Found WS info in ArgHolder, applying to Connection. Host=" + wsAddress.getRawHost());
+			}
+		}
 	}
 
 	// ==================================================================================
