@@ -35,6 +35,13 @@ public class MixinConnectionChInit {
 
 	@Inject(method = "initChannel", at = @At("RETURN"), require = 1)
 	protected void initChannel(Channel channel, CallbackInfo callback) {
+		if (this.connection == null) {
+			// 极端情况下（如被其他模组修改了构造函数，或者 Mixin 捕获失败），this.connection 可能为空。
+			// 此时应视为原版连接，不进行 WSMC 注入，避免 NPE 导致游戏崩溃。
+			WSMC.info("initChannel: this.connection is null, skipping WSMC hook (fallback to vanilla)");
+			return;
+		}
+
 		IConnectionEx connection = (IConnectionEx) this.connection;
 		IWebSocketServerAddress wsInfo = connection.getWsInfo();
 		WSMC.info("initChannel: wsInfo=" + (wsInfo == null ? "null" : (wsInfo.isVanilla() ? "vanilla" : "ws")));
