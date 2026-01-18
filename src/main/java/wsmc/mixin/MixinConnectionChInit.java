@@ -30,18 +30,19 @@ public class MixinConnectionChInit {
 
     @Inject(method = "initChannel", at = @At("RETURN"), require = 1)
     protected void initChannel(Channel channel, CallbackInfo callback) {
+        WSMC.debug("MixinConnectionChInit: initChannel called");
         // --- 终极兼容性防御 ---
         try {
             // 1. 检查 Connection 对象是否存在 (修复 PacketFixer 导致的 NPE)
             if (this.connection == null) {
                 // 仅在调试模式下输出，避免刷屏
-                // WSMC.info("initChannel: connection is null, fallback to vanilla.");
+                WSMC.debug("MixinConnectionChInit: connection is null, fallback to vanilla.");
                 return;
             }
 
             // 2. 检查接口转换是否安全
             if (!(this.connection instanceof IConnectionEx)) {
-                WSMC.info("initChannel: connection does not implement IConnectionEx, skipping.");
+                WSMC.debug("MixinConnectionChInit: connection does not implement IConnectionEx, skipping.");
                 return;
             }
 
@@ -49,7 +50,12 @@ public class MixinConnectionChInit {
             IWebSocketServerAddress wsInfo = connection.getWsInfo();
 
             // 3. 如果是原版连接，直接跳过 (不打印日志，保持安静)
-            if (wsInfo == null || wsInfo.isVanilla()) {
+            if (wsInfo == null) {
+                WSMC.debug("MixinConnectionChInit: wsInfo is null, vanilla TCP");
+                return;
+            }
+            if (wsInfo.isVanilla()) {
+                WSMC.debug("MixinConnectionChInit: wsInfo is vanilla, vanilla TCP");
                 return;
             }
 
@@ -59,7 +65,7 @@ public class MixinConnectionChInit {
 
         } catch (Throwable t) {
             // 5. 捕获所有潜在错误 (LinkageError, ClassCastException 等)
-            // 这一点至关重要：Netty 如果在 initChannel 中抛出异常，会直接关闭连接而不报错！
+            // 这一点至关重要：Netty 如果在 initChannel 中抛出异常，会直接关闭连接而不报错。
             WSMC.info("initChannel 发生意外错误 (已忽略，尝试按原版连接): " + t.toString());
             t.printStackTrace();
         }
