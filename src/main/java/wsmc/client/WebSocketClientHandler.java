@@ -227,13 +227,11 @@ public class WebSocketClientHandler extends WebSocketHandler {
 	public void channelActive(ChannelHandlerContext ctx) throws Exception {
 		super.channelActive(ctx);
 
-		// --- [修复补丁 1：发送请求前的防御] ---
-		// Packet Fixer 可能在连接刚建立时就清空了管线。
-		// 在发送握手请求前，必须确保 HTTP 编解码器存在，并且在管线最前面 (addFirst)，
-		// 这样可以防止 Packet Fixer 的 Splitter (Varint21FrameDecoder) 拦截或破坏 HTTP 数据。
-
+		// --- [兼容 PacketFixer] ---
+		// 它可能在连接建立瞬间清空管线。
+		// 必须确保 HttpClientCodec 存在，否则无法发送 WebSocket 握手请求。
 		if (ctx.pipeline().get(HttpClientCodec.class) == null) {
-			WSMC.info("检测到 HttpClientCodec 缺失（channelActive），正在防御性恢复...");
+			WSMC.info("检测到 HttpClientCodec 缺失（可能是 PacketFixer 清理了），正在恢复...");
 			ctx.pipeline().addFirst("WsmcHttpClient", new HttpClientCodec());
 		}
 
@@ -322,12 +320,10 @@ public class WebSocketClientHandler extends WebSocketHandler {
 				startPing(ctx);
 				handshakeFuture.setSuccess();
 
-				// --- [新增：强制移除 Packet Fixer 的 Splitter] ---
-				// 既然握手成功了，WebSocketHandler 会负责解包。
-				// Packet Fixer 的 splitter (Varint21FrameDecoder) 可能会卡死数据流。
-				// 尝试移除它，让数据直接流向 Decoder。
+				// --- [兼容 PacketFixer] ---
+				// 握手成功后，移除它的 splitter，避免它拦截 WebSocket 帧
 				if (ctx.pipeline().get("splitter") != null) {
-					WSMC.info("尝试移除冲突的 Splitter 以解决卡登录问题...");
+					WSMC.info("移除 PacketFixer 的 splitter 以允许 WebSocket 数据通过...");
 					ctx.pipeline().remove("splitter");
 				}
 				// ------------------------------------------------
