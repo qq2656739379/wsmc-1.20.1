@@ -340,7 +340,7 @@ public class WebSocketClientHandler extends WebSocketHandler {
 							// 这是一个最简化的 VarInt 分离器逻辑，完全复刻原版行为，没有任何防御检测
 							in.markReaderIndex();
 
-							byte[] buf = new byte[3]; // Minecraft 包长度通常不超过 3 字节 VarInt
+							byte[] buf = new byte[5]; // Minecraft VarInt 最多 5 字节
 							for (int i = 0; i < buf.length; i++) {
 								if (!in.isReadable()) {
 									in.resetReaderIndex();
