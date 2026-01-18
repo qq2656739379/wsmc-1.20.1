@@ -32,14 +32,18 @@ public class MixinConnectScreenThread {
 	}
 
 	@Inject(method = "run", require = 1, at = @At(value = "INVOKE",
-			target = "Lnet/minecraft/network/Connection;connect(Ljava/net/InetSocketAddress;ZLnet/minecraft/network/Connection;)Lio/netty/channel/ChannelFuture;"))
-	public void beforeCallConnect(CallbackInfo callback, @Local(ordinal = 0, argsOnly = false) Connection connection) {
+			target = "Lnet/minecraft/network/Connection;connectToServer(Ljava/net/InetSocketAddress;Z)Lnet/minecraft/network/Connection;"))
+	public void beforeCallConnect(CallbackInfo callback) {
 		IWebSocketServerAddress wsAddress = IWebSocketServerAddress.from(serverAddress);
-		IConnectionEx con = (IConnectionEx) connection;
-		con.setWsInfo(wsAddress);
-		WSMC.info("准备调用 Connection.connect，目标=" + serverAddress.getHost() + ":" + serverAddress.getPort()
+
+		// Push to ArgHolder so MixinConnection can pick it up
+		IConnectionEx.connectToServerArg.push(wsAddress);
+
+		WSMC.debug("MixinConnectScreenThread: 准备调用 Connection.connectToServer，目标=" + serverAddress.getHost() + ":" + serverAddress.getPort()
 				+ " ws=" + (wsAddress.isVanilla() ? "vanilla" : "ws")
 				+ " rawHost=" + wsAddress.getRawHost());
+		WSMC.debug("MixinConnectScreenThread: Pushed wsInfo to ArgHolder");
+
 		String mode = wsAddress.isVanilla() ? "原版 TCP" : "WebSocket";
 		StatusLogStore.get().append(ConnectionEvent.Type.INFO, "开始建立 TCP 连接 (" + mode + "): " + serverAddress.toString());
 		ConnectStageNotifier.status("开始建立 TCP 连接 (" + mode + "): " + serverAddress.toString());

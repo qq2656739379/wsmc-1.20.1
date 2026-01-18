@@ -150,13 +150,16 @@ public class WebSocketClientHandler extends WebSocketHandler {
 	}
 
 	public static void hookPipeline(ChannelPipeline pipeline, IWebSocketServerAddress wsInfo) {
+		WSMC.debug("WebSocketClientHandler: hookPipeline called");
 		// Do not perform WebSocket handshake for vanilla TCP Minecraft
 		if (wsInfo == null) {
 			StatusLogStore.get().append(Type.WARN, "未获取到 WS 信息，跳过握手");
+			WSMC.debug("WebSocketClientHandler: wsInfo is null");
 			return;
 		}
 		if (wsInfo.isVanilla()) {
 			StatusLogStore.get().append(Type.INFO, "目标为原版 TCP，跳过 WebSocket 握手");
+			WSMC.debug("WebSocketClientHandler: wsInfo is vanilla");
 			return;
 		}
 
@@ -229,6 +232,7 @@ public class WebSocketClientHandler extends WebSocketHandler {
 	@Override
 	public void channelActive(ChannelHandlerContext ctx) throws Exception {
 		super.channelActive(ctx);
+		WSMC.debug("WebSocketClientHandler: channelActive");
 
 		// --- [兼容 PacketFixer] ---
 		// 它可能在连接建立瞬间清空管线。
@@ -289,6 +293,7 @@ public class WebSocketClientHandler extends WebSocketHandler {
 
 		// --- [修复补丁 2：收到响应时的防御] ---
 		if (!handshaker.isHandshakeComplete()) {
+			WSMC.debug("WebSocketClientHandler: Handshake response received");
 			try {
 				// Packet Fixer 可能在握手期间又把处理器删了。
 				// 我们再次检查，确保 finishHandshake 能找到它们并正常移除，而不是报错。
@@ -307,6 +312,7 @@ public class WebSocketClientHandler extends WebSocketHandler {
 
 				// 正常完成握手
 				handshaker.finishHandshake(ch, (FullHttpResponse) msg);
+				WSMC.debug("WebSocketClientHandler: Handshake finished");
 
 				// WSMC 协议协商逻辑
 				if (msg instanceof FullHttpResponse) {
