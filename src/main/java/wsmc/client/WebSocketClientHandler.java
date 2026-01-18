@@ -326,6 +326,14 @@ public class WebSocketClientHandler extends WebSocketHandler {
 					WSMC.info("移除 PacketFixer 的 splitter 以允许 WebSocket 数据通过...");
 					ctx.pipeline().remove("splitter");
 				}
+
+				// --- [本次新增关键修复] ---
+				// 必须同时移除 prepender！
+				// 否则发出的数据包会带有多余的长度前缀，服务器解析时会错位（把长度当成包 ID）。
+				if (ctx.pipeline().get("prepender") != null) {
+					WSMC.info("移除 PacketFixer 的 prepender (长度前缀) 以避免双重封装...");
+					ctx.pipeline().remove("prepender");
+				}
 				// ------------------------------------------------
 
 				// 注意：握手成功后，不要去动 decoder/encoder，
