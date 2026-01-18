@@ -321,20 +321,23 @@ public class WebSocketClientHandler extends WebSocketHandler {
 				handshakeFuture.setSuccess();
 
 				// --- [兼容 PacketFixer] ---
-				// 握手成功后，移除它的 splitter，避免它拦截 WebSocket 帧
+				// 握手成功后，我们不能简单移除 splitter，因为 PacketFixer 可能会把它加回来。
+				// 所以我们用一个“直通处理器”替换它，既保留了名字（骗过 PacketFixer），又不阻碍数据。
 				if (ctx.pipeline().get("splitter") != null) {
-					WSMC.info("移除 PacketFixer 的 splitter 以允许 WebSocket 数据通过...");
-					ctx.pipeline().remove("splitter");
+					WSMC.info("检测到 PacketFixer 的 splitter，正在替换为直通处理器...");
+
+					ctx.pipeline().replace("splitter", "splitter", new io.netty.channel.ChannelInboundHandlerAdapter() {
+						@Override
+						public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+							// 直接放行数据，不读取长度前缀
+							ctx.fireChannelRead(msg);
+						}
+					});
 				}
 
-				// --- [本次新增关键修复] ---
-				// 必须同时移除 prepender！
-				// 否则发出的数据包会带有多余的长度前缀，服务器解析时会错位（把长度当成包 ID）。
-				if (ctx.pipeline().get("prepender") != null) {
-					WSMC.info("移除 PacketFixer 的 prepender (长度前缀) 以避免双重封装...");
-					ctx.pipeline().remove("prepender");
-				}
-				// ------------------------------------------------
+				// 注意：不要移除 prepender！
+				// 服务器期望收到带有 VarInt 长度前缀的数据包 ([Length][ID][Data])。
+				// 如果移除 prepender，客户端只发送 [ID][Data]，会导致服务器解析错位并卡死。
 
 				// 注意：握手成功后，不要去动 decoder/encoder，
 				// 让 Packet Fixer 的处理器留在那，只要它们不干扰 WebSocket 帧（通常经过 HTTP 升级后它们就接触不到数据了）。
